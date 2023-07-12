@@ -261,13 +261,15 @@ class TSCNN(nn.Module):
                 eval_points=linspace(1,x.grid_points[0].shape[0],self.granulation)
                 Recons_train=x.interpolation._evaluate(fdata=x,eval_points=eval_points)[:,:,0]
                 Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],1,Recons_train.shape[1])
-            if isinstance(x,torch.Tensor):
+            elif isinstance(x,torch.Tensor):
                 grid=fd(x[:,0,:].cpu(),grid_points=np.arange(x.shape[2]+1)[1:])
                 eval_points=linspace(1,x.shape[2],self.granulation)
                 grid.interpolation=self.smoother.smoothing()
                 Recons_train=grid.interpolation._evaluate(fdata=grid,eval_points=eval_points)
                 Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],1,Recons_train.shape[1])
-                
+            else:
+                raise ValueError("the NN argument must be either torch.tensor or skfda.representation.grid.FDataGrid")
+          
 
         return Recons_train.float().cuda()
 
