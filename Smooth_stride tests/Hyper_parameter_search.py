@@ -65,12 +65,12 @@ def weights_init_normal(m):
         torch.nn.init.constant_(m.bias.data, 0.0)
 
 class Smoothing_method:
-    def __init__(self,knots_or_basis="knots",Mode="Smooth",basis_type="Bspline",interpolation_order=3,B_spline_order=4,
+    def __init__(self,knots_or_basis="knots",Mode="Smooth",basis_type="Bspline",order=3,
                  knots=np.linspace(1,12,6),period=2*pi,n_basis=13):
         self.Mode=Mode
         self.basis_type=basis_type
-        self.interpolation_order=interpolation_order
-        self.B_spline_order=B_spline_order
+        # self.interpolation_order=interpolation_order
+        self.order=order
         self.knots_or_basis=knots_or_basis
         self.knots=knots
         self.period=period
@@ -78,16 +78,16 @@ class Smoothing_method:
     def smoothing(self):
         if 'inter' in self.Mode:
             # interpolation=skfda.representation.interpolation.SplineInterpolation(interpolation_order=self.interpolation_order)             
-            smooth_meth= skfda.representation.interpolation.SplineInterpolation(interpolation_order=self.interpolation_order)             
+            smooth_meth= skfda.representation.interpolation.SplineInterpolation(interpolation_order=self.order)             
         else:
             if "knots" in self.knots_or_basis:  
                 if ("spline" in self.basis_type) or ("Bsp" in self.basis_type) or ("spl" in self.basis_type):
-                    smooth_meth= B(knots=self.knots,order=self.B_spline_order)
+                    smooth_meth= B(knots=self.knots,order=self.order)
                 if self.basis_type=="Fourier":
                     smooth_meth=skfda.representation.basis.FourierBasis(domain_range=[min(self.knots),max(self.knots)],period=self.period)
             if "basis" in self.knots_or_basis:
                 if ("spline" in self.basis_type) or ("Bsp" in self.basis_type) or ("spbasis" in self.basis_type):
-                    smooth_meth= B(n_basis=self.n_basis,order=self.B_spline_order)
+                    smooth_meth= B(n_basis=self.n_basis,order=self.order)
                 if ("fourier" in self.basis_type)or ("fourrier" in self.basis_type) or ("Fourier" in self.basis_type) or ("four" in self.basis_type):
                     smooth_meth=skfda.representation.basis.FourierBasis(n_basis=self.n_basis,period=self.period)
         return smooth_meth
@@ -105,7 +105,7 @@ class HyperParameters:
                  dilation_pool_1=1, dilation_pool_2=1, dilation_pool_3=1,
                  padding_1=2, padding_2=2, padding_3=2,
                  padding_pool_1=0, padding_pool_2=0, padding_pool_3=0,
-                 opt="Adam", lr=0.00089, loss=nn.CrossEntropyLoss(),activation=nn.Identity(),negative_slope=0.17):
+                 opt="Adam", lr=0.00089, loss=nn.CrossEntropyLoss(),activation=nn.Identity(),negative_slope=0.17,n_channel=1):
 
         self.basis=Smoothing_method.smoothing()
         self.Smoothing_type=Smoothing_method.Mode
@@ -114,6 +114,7 @@ class HyperParameters:
         self.batch_size=batch_size
         self.activation=activation
         self.n_conv_out=n_conv_out
+        self.n_channel=n_channel
         
         self.granulation = granulation
         self.n_conv_in = n_conv_in
@@ -177,7 +178,7 @@ class TSCNN(nn.Module):
         dilation_pool_1 = hyperparams.dilation_pool_1
         dilation_pool_2 = hyperparams.dilation_pool_2
         dilation_pool_3 = hyperparams.dilation_pool_3
-        basis=hyperparams.basis
+        # basis=hyperparams.basis
         negative_slope=hyperparams.negative_slope
         padding_1 = hyperparams.padding_1
         padding_2 = hyperparams.padding_2
@@ -187,10 +188,11 @@ class TSCNN(nn.Module):
         padding_pool_3 = hyperparams.padding_pool_3
         negative_slope = hyperparams.negative_slope
         # Reste du code pour l'initialisation de la classe model
-        self.basis=basis
+        self.basis=hyperparams.Smoothing_method.smoothing()
         self.granulation=granulation
+        self.n_channel=hyperparams.n_channel
         self.convlayer1=nn.Sequential(
-            nn.Conv1d(1,n_conv_in,kernel_size=kernel_size_1,stride=stride_1,padding=padding_1,dilation=dilation_1),
+            nn.Conv1d(self.n_channel,n_conv_in,kernel_size=kernel_size_1,stride=stride_1,padding=padding_1,dilation=dilation_1),
             nn.BatchNorm1d(n_conv_in),
             nn.LeakyReLU(negative_slope),
             hyperparams.activation,
@@ -238,12 +240,12 @@ class TSCNN(nn.Module):
             if isinstance(x,skfda.representation.grid.FDataGrid):
                 eval_points=linspace(1,x.grid_points[0].shape[0],self.granulation)
                 coefs=x.to_basis(basis=self.basis).coefficients
-                basis_eval=self.basis.evaluate(eval_points=eval_points)[:, :, 0]
+                basis_eval=self.basis(eval_points=eval_points)[:, :, 0]
                 basis_fc = torch.from_numpy(basis_eval).float().cuda()
                 
             elif isinstance(x,torch.Tensor):
                 eval_points=linspace(1,x.shape[2],self.granulation)
-                basis_eval=self.basis.evaluate(eval_points=eval_points)[:, :, 0]
+                basis_eval=self.basis(eval_points=eval_points)[:, :, 0]
                 basis_fc = torch.from_numpy(basis_eval).float().cuda()
                 coefs=fd(x[:,0,:].cpu(),grid_points=np.arange(x.shape[2]+1)[1:]).to_basis(basis=self.basis).coefficients
 
@@ -253,20 +255,20 @@ class TSCNN(nn.Module):
                 
             coefs_torch=torch.tensor(coefs).float().cuda()
             Recons_train=torch.matmul(coefs_torch,basis_fc)
-            Recons_train=Recons_train.reshape(Recons_train.shape[0],1,Recons_train.shape[1])
+            Recons_train=Recons_train.reshape(Recons_train.shape[0],self.n_channel,Recons_train.shape[1])
         
         else:
             if isinstance(x,skfda.representation.grid.FDataGrid):
                 x.interpolation=self.smoother.smoothing()
                 eval_points=linspace(1,x.grid_points[0].shape[0],self.granulation)
                 Recons_train=x.interpolation._evaluate(fdata=x,eval_points=eval_points)[:,:,0]
-                Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],1,Recons_train.shape[1])
+                Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],self.n_channel,Recons_train.shape[1])
             elif isinstance(x,torch.Tensor):
                 grid=fd(x[:,0,:].cpu(),grid_points=np.arange(x.shape[2]+1)[1:])
                 eval_points=linspace(1,x.shape[2],self.granulation)
                 grid.interpolation=self.smoother.smoothing()
                 Recons_train=grid.interpolation._evaluate(fdata=grid,eval_points=eval_points)
-                Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],1,Recons_train.shape[1])
+                Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],self.n_channel,Recons_train.shape[1])
             else:
                 raise ValueError("the NN argument must be either torch.tensor or skfda.representation.grid.FDataGrid")
           
@@ -325,7 +327,7 @@ class FCNN(nn.Module):
         self.Relu=nn.ReLU()
 
         self.convlayer1=nn.Sequential(
-            nn.Conv1d(1,n_conv_in,kernel_size=kernel_size_1,stride=stride_1,padding=padding_1,dilation=dilation_1),
+            nn.Conv1d(hyperparams.n_channel,n_conv_in,kernel_size=kernel_size_1,stride=stride_1,padding=padding_1,dilation=dilation_1),
             nn.BatchNorm1d(n_conv_in),
             nn.LeakyReLU(negative_slope),
             
@@ -375,7 +377,7 @@ class FCNN(nn.Module):
         return Lin_out.float().unsqueeze_(2).unsqueeze_(3)
 
 
-def Compile_class(model_class,hyperparams,x_train,output_size):
+def Compile_class(model_class="Smooth",hyperparams=HyperParameters(),output_size=1,x_train=torch.zeros(6,6,7)):
     basis = hyperparams.basis
     granulation = hyperparams.granulation
     n_conv_in = hyperparams.n_conv_in
@@ -449,7 +451,7 @@ def Compile_class(model_class,hyperparams,x_train,output_size):
                 padding_pool_1 = hyperparams.padding_pool_1
                 padding_pool_2 = hyperparams.padding_pool_2
                 padding_pool_3 = hyperparams.padding_pool_3
-
+                self.n_channel=hyperparams.n_channel
                 self.convlayer1=nn.Sequential(
                     nn.Conv1d(1,n_conv_in,kernel_size=kernel_size_1,stride=stride_1,padding=padding_1,dilation=dilation_1),
                     nn.BatchNorm1d(n_conv_in),
@@ -605,12 +607,12 @@ def Compile_class(model_class,hyperparams,x_train,output_size):
                     if isinstance(x,skfda.representation.grid.FDataGrid):
                         eval_points=linspace(1,x.grid_points[0].shape[0],self.granulation)
                         coefs=x.to_basis(basis=self.basis).coefficients
-                        basis_eval=self.basis.evaluate(eval_points=eval_points)[:, :, 0]
+                        basis_eval=self.basis(eval_points=eval_points)[:, :, 0]
                         basis_fc = torch.from_numpy(basis_eval).float().cuda()
                         
                     if isinstance(x,torch.Tensor):
                         eval_points=linspace(1,x.shape[2],self.granulation)
-                        basis_eval=self.basis.evaluate(eval_points=eval_points)[:, :, 0]
+                        basis_eval=self.basis(eval_points=eval_points)[:, :, 0]
                         basis_fc = torch.from_numpy(basis_eval).float().cuda()
                         coefs=fd(x[:,0,:].cpu(),grid_points=np.arange(x.shape[2]+1)[1:]).to_basis(basis=self.basis).coefficients
 
@@ -620,20 +622,20 @@ def Compile_class(model_class,hyperparams,x_train,output_size):
                         
                     coefs_torch=torch.tensor(coefs).float().cuda()
                     Recons_train=torch.matmul(coefs_torch,basis_fc)
-                    Recons_train=Recons_train.reshape(Recons_train.shape[0],1,Recons_train.shape[1])
+                    Recons_train=Recons_train.reshape(Recons_train.shape[0],self.n_channel,Recons_train.shape[1])
                 
                 else:
                     if isinstance(x,skfda.representation.grid.FDataGrid):
                         x.interpolation=self.smoother.smoothing()
                         eval_points=linspace(1,x.grid_points[0].shape[0],self.granulation)
                         Recons_train=x.interpolation._evaluate(fdata=x,eval_points=eval_points)[:,:,0]
-                        Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],1,Recons_train.shape[1])
+                        Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],self.n_channel,Recons_train.shape[1])
                     if isinstance(x,torch.Tensor):
                         grid=fd(x[:,0,:].cpu(),grid_points=np.arange(x.shape[2]+1)[1:])
                         eval_points=linspace(1,x.shape[2],self.granulation)
                         grid.interpolation=self.smoother.smoothing()
                         Recons_train=grid.interpolation._evaluate(fdata=grid,eval_points=eval_points)
-                        Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],1,Recons_train.shape[1])
+                        Recons_train=torch.tensor(Recons_train).reshape(Recons_train.shape[0],self.n_channel,Recons_train.shape[1])
                         
 
                 return Recons_train.float().cuda()
@@ -698,7 +700,7 @@ def Hyperparameter_Test(hyperparameters,model_class,x,y,output_size):
 
     x_train,x_test,y_train,y_test=sklearn.model_selection.train_test_split(x,y,shuffle=True)    
     ##Compilation de la classe 
-    T=x.shape[2]
+    # T=x.shape[2]
 
     Model=Compile_class(hyperparams=hyperparameters,output_size=output_size,model_class=model_class,x_train=x_train)
     
