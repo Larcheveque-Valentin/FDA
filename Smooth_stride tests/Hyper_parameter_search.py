@@ -72,16 +72,17 @@ def conv_block_out(kernel_size,stride,padding,dilation,n):
 
 
 class Smoothing_method:
-    def __init__(self,knots_or_basis="knots",Mode="Smooth",basis_type="Bspline",order=3,
-                 knots=np.linspace(1,12,6),period=2*pi,n_basis=13):
+    def __init__(self,knots_or_basis="knots",Mode="Smooth",basis_type="Bspline",order=3,T=12,period=2*pi,n_basis=13,n_knots=6):
         self.Mode=Mode
         self.basis_type=basis_type
         # self.interpolation_order=interpolation_order
         self.order=order
         self.knots_or_basis=knots_or_basis
-        self.knots=knots
+        self.knots=np.linspace(1,T,n_knots)
+        self.n_knots=n_knots
         self.period=period
         self.n_basis=n_basis
+            
     def smoothing(self):
         if 'inter' in self.Mode:
             # interpolation=skfda.representation.interpolation.SplineInterpolation(interpolation_order=self.interpolation_order)             
@@ -115,8 +116,14 @@ class HyperParameters:
                  dilation_pool_1=1, dilation_pool_2=1, dilation_pool_3=1,
                  padding_1=2, padding_2=2, padding_3=2,derivative=[0],
                  padding_pool_1=0, padding_pool_2=0, padding_pool_3=0,
-                 opt="Adam", lr=0.00089, loss=nn.CrossEntropyLoss(),activation=nn.Identity(),negative_slope=0.17,n_channel=1):
+                 opt="Adam", lr=0.00089, loss=nn.CrossEntropyLoss(),
+                 activation=nn.Identity(),
+                 negative_slope=0.17,
+                 n_channel=1,
+                 bidirectional=False,
+                 n_knots=6):
         self.derivative=derivative
+        self.bidirectional=bidirectional
         self.Smoothing_type=Smoothing_method.Mode
         self.Smoothing_method=Smoothing_method
         self.n_epochs = n_epochs
@@ -124,7 +131,7 @@ class HyperParameters:
         self.activation=activation
         self.n_conv_out=n_conv_out
         self.n_channel=n_channel
-        
+        self.n_knots=n_knots
         self.granulation = granulation
         self.n_conv_in = n_conv_in
         self.n_conv_in2 = n_conv_in2
@@ -310,10 +317,10 @@ class TSCNN(nn.Module):
             for channel in range(self.n_channel):
                 for deriv in self.hyperparameters.derivative:
                     eval_points=linspace(1,x_grid.grid_points[0].shape[0],self.granulation)
-                    coefs=torch.tensor(x_grid.to_basis(basis=self.basis).coefficients).float().cuda()
+                    coefs_torch=torch.from_numpy(x_grid.to_basis(basis=self.basis).coefficients).float().cuda()
                     basis_eval=self.basis(eval_points=eval_points,derivative=deriv)
                     basis_fc = torch.from_numpy(basis_eval).float().cuda()
-                    coefs_torch=torch.tensor(coefs).float().cuda()        
+                    # coefs_torch=torch.from_numpy(coefs).float().cuda()        
                     Recons_train[:,i,:]=torch.matmul(coefs_torch,basis_fc[:,:,channel])
                     i+=1    
         
@@ -522,9 +529,10 @@ class MLP(nn.Module):
             def __init__(self,hyperparams,input_size,output_size):
                 super(MLP,self).__init__()
                 self.input_size=input_size
+                self.hyperparameters=hyperparams
                 self.fc_block=nn.Sequential(
                     nn.Flatten(),
-                    nn.Linear(input_size,hyperparams.n_conv_in),
+                    nn.Linear(input_size*hyperparams.n_channel,hyperparams.n_conv_in),
                     nn.BatchNorm1d(hyperparams.n_conv_in),
                     nn.LeakyReLU(negative_slope=hyperparams.negative_slope),
                     hyperparams.activation,
@@ -542,72 +550,137 @@ class MLP(nn.Module):
             def forward(self,x):
                 if isinstance(x,skfda.representation.grid.FDataGrid):
                     data_matrix=torch.tensor(x.data_matrix).float().cuda()
-                    Lin_out=self.fc_block(data_matrix)
+                    
+                    input=data_matrix.reshape(data_matrix.shape[0],data_matrix.shape[2],data_matrix.shape[1])
                 elif isinstance(x,torch.Tensor):
-                    Lin_out=self.fc_block(x)
+                    input=x
                 else:
                     raise ValueError("NN input must be fdatagrid or torch tensor")
+                Lin_out=self.fc_block(input)
                 return Lin_out.float().unsqueeze(2).unsqueeze(3)
           
 
+class LSTM(nn.Module):
+    def __init__(self,hyperparams,input_size,output_size):
+        super(LSTM,self).__init__()
+        self.hyperparameters=hyperparams
+        self.lstm=nn.LSTM(input_size,hidden_size=hyperparams.n_conv_in,num_layers=hyperparams.kernel_size_1,batch_first=True,bidirectional=hyperparams.bidirectional)
+        
+        
+        self.fc_block=nn.Sequential(
+        nn.Flatten(),
+        nn.Linear(hyperparams.n_conv_in*hyperparams.n_channel,hyperparams.n_conv_in2),
+        nn.BatchNorm1d(hyperparams.n_conv_in2),
+        nn.LeakyReLU(negative_slope=hyperparams.negative_slope),
+        
+        hyperparams.activation,
+        nn.Linear(hyperparams.n_conv_in2,hyperparams.n_conv_in3),
+        nn.BatchNorm1d(hyperparams.n_conv_in3),
+        nn.LeakyReLU(negative_slope=hyperparams.negative_slope),
+        nn.Linear(hyperparams.n_conv_in3,output_size)
+        )
 
+    def forward(self,x):
+        if isinstance(x,skfda.representation.grid.FDataGrid):
+            data_matrix=torch.tensor(x.data_matrix).float().cuda()
+            input=data_matrix.reshape(data_matrix.shape[0],data_matrix.shape[2],data_matrix.shape[1])
+        elif isinstance(x,torch.Tensor):
+            input=x
+        
+        lstm_out,_=self.lstm(input)
+        Lin_out=self.fc_block(lstm_out)
+
+        return Lin_out.float().unsqueeze(2).unsqueeze(3)
+      
+class GRU(nn.Module):
+    def __init__(self,hyperparams,input_size,output_size):
+        super(GRU,self).__init__()
+        self.hyperparameters=hyperparams
+        self.gru=nn.LSTM(input_size,hidden_size=hyperparams.n_conv_in,num_layers=hyperparams.kernel_size_1,batch_first=True,bidirectional=hyperparams.bidirectional)
+        self.fc_block=nn.Sequential(
+        nn.Flatten(),
+        nn.Linear(hyperparams.n_conv_in*hyperparams.n_channel,hyperparams.n_conv_in2),
+        nn.BatchNorm1d(hyperparams.n_conv_in2),
+        nn.LeakyReLU(negative_slope=hyperparams.negative_slope),
+        
+        hyperparams.activation,
+        nn.Linear(hyperparams.n_conv_in2,hyperparams.n_conv_in3),
+        nn.BatchNorm1d(hyperparams.n_conv_in3),
+        nn.LeakyReLU(negative_slope=hyperparams.negative_slope),
+        nn.Linear(hyperparams.n_conv_in3,output_size)
+        )
+
+    def forward(self,x):
+        if isinstance(x,skfda.representation.grid.FDataGrid):
+            data_matrix=torch.tensor(x.data_matrix).float().cuda()
+            input=data_matrix.reshape(data_matrix.shape[0],data_matrix.shape[2],data_matrix.shape[1])
+        elif isinstance(x,torch.Tensor):
+            input=x
+        
+        gru_out,_=self.gru(input)
+        Lin_out=self.fc_block(gru_out)
+
+        return Lin_out.float().unsqueeze(2).unsqueeze(3)
+        
 
 
 
 def Compile_class(model_class="TSCNN",hyperparams=HyperParameters(),output_size=1,x_train=torch.zeros(6,6,7)):
-    basis = hyperparams.basis
-    granulation = hyperparams.granulation
-    n_conv_in = hyperparams.n_conv_in
-    n_conv_in2 = hyperparams.n_conv_in2
-    n_conv_in3 = hyperparams.n_conv_in3
-    n_Flat_out = hyperparams.n_Flat_out
-    stride_1 = hyperparams.stride_1
-    stride_2 = hyperparams.stride_2
-    stride_3 = hyperparams.stride_3
-    stride_pool_1 = hyperparams.stride_pool_1
-    stride_pool_2 = hyperparams.stride_pool_2
-    stride_pool_3 = hyperparams.stride_pool_3
-    kernel_size_1 = hyperparams.kernel_size_1
-    kernel_size_2 = hyperparams.kernel_size_2
-    kernel_size_3 = hyperparams.kernel_size_3
-    kernel_size_pool_1 = hyperparams.kernel_size_pool_1
-    kernel_size_pool_2 = hyperparams.kernel_size_pool_2
-    kernel_size_pool_3 = hyperparams.kernel_size_pool_3
-    dilation_1 = hyperparams.dilation_1
-    dilation_2 = hyperparams.dilation_2
-    dilation_3 = hyperparams.dilation_3
-    dilation_pool_1 = hyperparams.dilation_pool_1
-    dilation_pool_2 = hyperparams.dilation_pool_2
-    dilation_pool_3 = hyperparams.dilation_pool_3
-    padding_1 = hyperparams.padding_1
-    padding_2 = hyperparams.padding_2
-    padding_3 = hyperparams.padding_3
-    padding_pool_1 = hyperparams.padding_pool_1
-    padding_pool_2 = hyperparams.padding_pool_2
-    padding_pool_3 = hyperparams.padding_pool_3
-    negative_slope=hyperparams.negative_slope
-    
+    # basis = hyperparams.basis
+    # granulation = hyperparams.granulation
+    # n_conv_in = hyperparams.n_conv_in
+    # n_conv_in2 = hyperparams.n_conv_in2
+    # n_conv_in3 = hyperparams.n_conv_in3
+    # n_Flat_out = hyperparams.n_Flat_out
+    # stride_1 = hyperparams.stride_1
+    # stride_2 = hyperparams.stride_2
+    # stride_3 = hyperparams.stride_3
+    # stride_pool_1 = hyperparams.stride_pool_1
+    # stride_pool_2 = hyperparams.stride_pool_2
+    # stride_pool_3 = hyperparams.stride_pool_3
+    # kernel_size_1 = hyperparams.kernel_size_1
+    # kernel_size_2 = hyperparams.kernel_size_2
+    # kernel_size_3 = hyperparams.kernel_size_3
+    # kernel_size_pool_1 = hyperparams.kernel_size_pool_1
+    # kernel_size_pool_2 = hyperparams.kernel_size_pool_2
+    # kernel_size_pool_3 = hyperparams.kernel_size_pool_3
+    # dilation_1 = hyperparams.dilation_1
+    # dilation_2 = hyperparams.dilation_2
+    # dilation_3 = hyperparams.dilation_3
+    # dilation_pool_1 = hyperparams.dilation_pool_1
+    # dilation_pool_2 = hyperparams.dilation_pool_2
+    # dilation_pool_3 = hyperparams.dilation_pool_3
+    # padding_1 = hyperparams.padding_1
+    # padding_2 = hyperparams.padding_2
+    # padding_3 = hyperparams.padding_3
+    # padding_pool_1 = hyperparams.padding_pool_1
+    # padding_pool_2 = hyperparams.padding_pool_2
+    # padding_pool_3 = hyperparams.padding_pool_3
+    # negative_slope=hyperparams.negative_slope
+    if isinstance(x_train,torch.Tensor):
+        hyperparams.n_channel=x_train.shape[1]
+    if isinstance(x_train,skfda.representation.grid.FDataGrid):
+            if x_train.data_matrix.shape[2]!=1:
+                hyperparams.n_channel=x_train.data_matrix.shape[2]
+
     
     if ("Conv" in model_class) or("Smooth" in model_class) or ("TSCNN" in model_class):
-        X=x_train
-        if isinstance(X,skfda.representation.grid.FDataGrid):
-                if X.data_matrix.shape[2]!=1:
-                    hyperparams.n_channel=X.data_matrix.shape[2]
-                    grid_T=X.data_matrix.shape[1]
-                    hyperparams.basis=B(knots=linspace(1,grid_T,6),order=4)
+        if isinstance(x_train,skfda.representation.grid.FDataGrid):
+                if x_train.data_matrix.shape[2]!=1:
+                    grid_T=x_train.data_matrix.shape[1]
                     basis_list=[]
                     for channel in range(hyperparams.n_channel):
-                        basis_channel=B(knots=linspace(1,grid_T,6),order=4)
+                        basis_channel=B(knots=linspace(1,grid_T,hyperparams.n_knots),order=4)
                         basis_list.append(basis_channel)
                     hyperparams.basis=MultiBasis(basis_list=basis_list)
-        elif isinstance(X,torch.Tensor):
-            grid_T=X.shape[2]
-            hyperparams.basis=B(knots=linspace(1,grid_T,6),order=4)
+        elif isinstance(x_train,torch.Tensor):
+            grid_T=x_train.shape[2]
+            hyperparams.basis=B(knots=linspace(1,grid_T,hyperparams.n_knots),order=4)
         hyperparams.n_conv_out=conv_total_out(hyperparams=hyperparams)
         module=TSCNN(hyperparams=hyperparams,output_size=output_size)
 
-    elif "mlp" in model_class:
-        input_size=x_train.shape[2]
+    elif ("mlp" in model_class) or ("MLP" in model_class):
+
         if isinstance(x_train,skfda.representation.grid.FDataGrid):
             data_matrix=torch.tensor(x_train.data_matrix).float().cuda()
             input_size=data_matrix.shape[1]
@@ -620,14 +693,34 @@ def Compile_class(model_class="TSCNN",hyperparams=HyperParameters(),output_size=
     elif ("Proj" in model_class) or ("proj" in model_class):
         module=Project_classifier(hyperparams=hyperparams,output_size=output_size)
 
+    elif ("lstm" in model_class) or ("LSTM" in model_class):
+        
+        if isinstance(x_train,skfda.representation.grid.FDataGrid):
+            data_matrix=torch.tensor(x_train.data_matrix).float().cuda()
+            input_size=data_matrix.shape[1]
+        elif isinstance(x_train,torch.Tensor):
+            input_size=x_train.shape[2] 
+        
+        module=LSTM(hyperparams,input_size=input_size,output_size=output_size)
+    
+    elif ('Gru' in model_class) or ('GRU' in model_class) or ('gru' in model_class):
+        if isinstance(x_train,skfda.representation.grid.FDataGrid):
+            data_matrix=torch.tensor(x_train.data_matrix).float().cuda()
+            input_size=data_matrix.shape[1]
+        elif isinstance(x_train,torch.Tensor):
+            input_size=x_train.shape[2] 
+        
+        module=GRU(hyperparams,input_size=input_size,output_size=output_size)
+
     else:
-        raise ValueError("model_class must be either Project,mlp or Conv")
+        raise ValueError("model_class shoud be a model_class")
     
     return module.cuda().apply(weights_init_normal)
 
 
-def Compile_train(module, hyperparams,X,Y):
+def Compile_train(module, hyperparams,X,Y,data_amount):
     x_train,x_test,y_train,y_test=sklearn.model_selection.train_test_split(X,Y,shuffle=True)    
+    x_train,y_train=x_train[:data_amount],y_train[:data_amount]
     opt=hyperparams.opt
     lr=hyperparams.lr
     loss=hyperparams.loss
@@ -679,7 +772,9 @@ def Hyperparameter_Test(x,y,supra_epochs=50,alpha=0.95,model_class="smooth",hype
     monte_carlo_test_acc=torch.zeros(hyperparameters.n_epochs+1,1)
     monte_carlo_train_acc=torch.zeros(hyperparameters.n_epochs+1,1)
     
-    for epoch in (range(supra_epochs)):
+    
+    
+    for epoch in tqdm((range(supra_epochs))):
         
         from scipy.stats import norm
 
@@ -688,8 +783,8 @@ def Hyperparameter_Test(x,y,supra_epochs=50,alpha=0.95,model_class="smooth",hype
 
         
         ##Compilation de la classe 
-
-        Model=Compile_class(hyperparams=hyperparameters,output_size=output_size,model_class=model_class,x_train=x)
+        
+        Model=Compile_class(hyperparams=hyperparameters,output_size=output_size,model_class=model_class,x_train=x,data_amount=x.shape[0])
         train_fn = Compile_train(module=Model, hyperparams=hyperparameters,X=x,Y=y)
 
         
@@ -714,21 +809,68 @@ def Hyperparameter_Test(x,y,supra_epochs=50,alpha=0.95,model_class="smooth",hype
     return monte_carlo_test_acc[1:,1:],monte_carlo_train_acc[1:,1:],mean_acc_train,var_acc_train,IC_acc_train, mean_acc_test,var_acc_test,IC_acc_test
 
 
-class model_printer():
-    def __init__(self,name="model_name",color="model_color"):
-        super(model_printer,self)
-        self.name=name
-        self.color=color
+def Hyperparameter_Test_n_data(x,y,supra_epochs=50,alpha=0.95,model_class="smooth",hyperparameters=HyperParameters(),output_size=1,data_step=15):
+    n_data=len(range(2,x.shape[0]*3//4,data_step))
+    max_monte_carlo_test_acc=torch.zeros(n_data,supra_epochs)
+    max_monte_carlo_train_acc=torch.zeros(n_data,supra_epochs)
+    
+    for epoch in tqdm((range(supra_epochs))):
+        
+        from scipy.stats import norm
+
+        chiffre = alpha
+        quartile = norm.ppf((1 + chiffre) / 2)
+        
+        
+        ##Compilation de la classe 
+
+        monte_carlo_test_acc=torch.zeros(hyperparameters.n_epochs+1,1)
+        monte_carlo_train_acc=torch.zeros(hyperparameters.n_epochs+1,1)
+        for data in range(2,3*x.shape[0]//4,data_step):
+            hyperparameters.batch_size=data
+            Model=Compile_class(hyperparams=hyperparameters,output_size=output_size,model_class=model_class,x_train=x)
+            train_fn = Compile_train(module=Model, hyperparams=hyperparameters,X=x,Y=y,data_amount=data)
+            monte_carlo_train,monte_carlo_test=train_fn(n_epochs=hyperparameters.n_epochs)
+            monte_carlo_test_acc=torch.cat([monte_carlo_test_acc,monte_carlo_test.unsqueeze(1)],dim=1)
+            monte_carlo_train_acc=torch.cat([monte_carlo_train_acc,monte_carlo_train.unsqueeze(1)],dim=1)
+
+        
+
+        
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        max_acc_train=torch.max(monte_carlo_train_acc[1:,1:],dim=0).values.float()
+        max_acc_test=torch.max(monte_carlo_test_acc[1:,1:],dim=0).values.float()
+        max_monte_carlo_test_acc[:,epoch]=max_acc_test
+        max_monte_carlo_train_acc[:,epoch]=max_acc_train
+    
+                
+    mean_acc_train=torch.mean(max_monte_carlo_train_acc,dim=1).float()
+    # max_acc_train=torch.max(monte_carlo_train_acc[1:,1:],dim=1).float()
+    var_acc_train=torch.var(max_monte_carlo_train_acc,dim=1).float()
+
+    
+    mean_acc_test=torch.mean(max_monte_carlo_test_acc,dim=1).float()
+    var_acc_test=torch.var(max_monte_carlo_test_acc,dim=1).float()
+
+    IC_acc_test=torch.cat([(mean_acc_test-quartile*sqrt(var_acc_test/supra_epochs)).unsqueeze(1),(mean_acc_test+quartile*sqrt(var_acc_test/supra_epochs)).unsqueeze(1)],dim=1)
+    IC_acc_train=torch.cat([(mean_acc_train-quartile*sqrt(var_acc_train/supra_epochs)).unsqueeze(1),(mean_acc_train+quartile*sqrt(var_acc_train/supra_epochs)).unsqueeze(1)],dim=1)
+
+    return max_monte_carlo_test_acc,max_monte_carlo_train_acc,mean_acc_train,var_acc_train,IC_acc_train, mean_acc_test,var_acc_test,IC_acc_test
 
 
 def Compare_epochs(params=None,
+            spec_param=None,
             datasets=None,
             models=None,
             supra_epochs=50,
             alpha=0.95,
-            colors=None):
-    colors=["darkred","darkblue"]
-    label=[" sans dérivées"," avec dérivées"]
+            colors=None,
+            label=None):
+    
+    
     # fig, axes = plt.subplots(int(floor(sqrt(len(datasets)))),int(floor(sqrt(len(datasets)))), figsize=(16, 16))
     num_datasets = len(datasets)
     num_plots_per_row = int(sqrt(num_datasets))
@@ -739,7 +881,8 @@ def Compare_epochs(params=None,
     # fig, axes = plt.subplots(((len(datasets))), figsize=(16, 16))
     string1='Précision de '
 
-    for i,dataset in enumerate(datasets):    
+    for i,dataset in enumerate((datasets)):  
+        print(dataset['dataset_name'])  
     # Boucle pour créer chaque subplot
         X,Y=dataset['X'],dataset['Y']
         window_left = i // num_plots_per_row
@@ -747,9 +890,10 @@ def Compare_epochs(params=None,
         ax = axes[window_left, window_right]
                 
         for j,hyperparams in enumerate(params):
-            hyperparams.batch_size=len(X)//3
+            hyperparams.batch_size=len(X)//2
             
             for k,model in enumerate(models):
+                print(model)
                 monte_carlo_test_acc=torch.zeros(hyperparams.n_epochs,supra_epochs,len(datasets),len(params),len(models))
                 monte_carlo_train_acc=torch.zeros(hyperparams.n_epochs,supra_epochs,len(datasets),len(params),len(models))
                 mean_acc_train=torch.zeros(hyperparams.n_epochs,len(datasets),len(params),len(models))
@@ -762,7 +906,7 @@ def Compare_epochs(params=None,
                 
                 monte_carlo_test_acc[:,:,i,j,k],monte_carlo_train_acc[:,:,i,j,k],mean_acc_train[:,i,j,k],var_acc_train[:,i,j,k],IC_acc_train[:,:,i,j,k],mean_acc_test[:,i,j,k],var_acc_test[:,i,j,k],IC_acc_test[:,:,i,j,k]=Hyperparameter_Test(model_class=model,
 
-                    hyperparameters=hyperparams,
+                    hyperparameters=spec_param[k],
                     supra_epochs=supra_epochs,
                     output_size=len(torch.unique(Y)),
                     x=X,
@@ -774,8 +918,8 @@ def Compare_epochs(params=None,
                 
                 # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+' '+"hyperparamètre"+str(j+1),color=colors[j])
                 # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color=colors[j])
-                ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+label[j],color=colors[j])
-                ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color=colors[j])
+                ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+label[j],color=colors[k])
+                ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color=colors[k])
                 # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color="")
                 # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+' '+str(j+1)+"ème hyperparamètre")
                 ax.set_title(dataset['dataset_name'])
@@ -796,6 +940,87 @@ def Compare_epochs(params=None,
     return fig,monte_carlo_test_acc,monte_carlo_train_acc,mean_acc_train,mean_acc_test,var_acc_train,var_acc_test,IC_acc_train,IC_acc_test
     # Premier dataset 
 
+def Compare_n_datas(params=None,
+            datasets=None,
+            models=None,
+            supra_epochs=50,
+            spec_param=None,
+            alpha=0.95,
+            ratio_data_max=3,
+            checkpoints_number=None,
+            colors=None):
+    
+    label=[" "," avec dérivées"]
+    # fig, axes = plt.subplots(int(floor(sqrt(len(datasets)))),int(floor(sqrt(len(datasets)))), figsize=(16, 16))
+    num_datasets = len(datasets)
+    num_plots_per_row = int(sqrt(num_datasets))
+    num_plots_per_col = (num_datasets + num_plots_per_row - 1) // num_plots_per_row
+
+    # Création de la figure et des axes
+    fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=(12, 12))
+    # fig, axes = plt.subplots(((len(datasets))), figsize=(16, 16))
+    string1='Précision de '
+
+    for i,dataset in enumerate((datasets)):   
+        print(dataset['dataset_name']) 
+    # Boucle pour créer chaque subplot
+        X,Y=dataset['X'],dataset['Y']
+        data_step=((X.shape[0])//checkpoints_number)
+        window_left = i // num_plots_per_row
+        window_right = i % num_plots_per_row
+        ax = axes[window_left, window_right]
+        n_datas=len(range(2,X.shape[0]*3//4,data_step))
+        
+        for j,hyperparams in enumerate(params):
+
+            
+            for k,model in enumerate(models):
+                print(model)
+                monte_carlo_test_acc=torch.zeros(n_datas,supra_epochs,len(datasets),len(params),len(models))
+                monte_carlo_train_acc=torch.zeros(n_datas,supra_epochs,len(datasets),len(params),len(models))
+                mean_acc_train=torch.zeros(n_datas,len(datasets),len(params),len(models))
+                mean_acc_test=torch.zeros(n_datas,len(datasets),len(params),len(models))
+                var_acc_train=torch.zeros(n_datas,len(datasets),len(params),len(models))
+                var_acc_test=torch.zeros(n_datas,len(datasets),len(params),len(models))
+                IC_acc_train=torch.zeros(n_datas,2,len(datasets),len(params),len(models))
+                IC_acc_test=torch.zeros(n_datas,2,len(datasets),len(params),len(models))
+                
+                
+                monte_carlo_test_acc[:,:,i,j,k],monte_carlo_train_acc[:,:,i,j,k],mean_acc_train[:,i,j,k],var_acc_train[:,i,j,k],IC_acc_train[:,:,i,j,k],mean_acc_test[:,i,j,k],var_acc_test[:,i,j,k],IC_acc_test[:,:,i,j,k]=Hyperparameter_Test_n_data(model_class=model,
+
+                    hyperparameters=spec_param[k],
+                    supra_epochs=supra_epochs,
+                    output_size=len(torch.unique(Y)),
+                    x=X,
+                    y=Y,
+                    alpha=alpha,
+                    data_step=data_step,
+                    )
+                
+                
+                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+' '+"hyperparamètre"+str(j+1),color=colors[j])
+                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color=colors[j])
+                ax.plot((np.arange(n_datas+1)[1:])*data_step,mean_acc_test[:,i,j,k], label=string1+model+label[j],color=colors[k])
+                ax.plot((np.arange(n_datas+1)[1:])*data_step,IC_acc_test[:,:,i,j,k],linestyle="dashed",color=colors[k])
+                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color="")
+                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+' '+str(j+1)+"ème hyperparamètre")
+                ax.set_title(dataset['dataset_name'])
+                ax.set_xlabel("Nombre de données d'entrainement ")
+                ax.set_ylabel("Accuracy test max atteinte")
+                ax.legend(loc="lower right")
+            
+
+
+
+
+        
+
+    plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
+    
+    plt.show()
+
+    return fig,monte_carlo_test_acc,monte_carlo_train_acc,mean_acc_train,mean_acc_test,var_acc_train,var_acc_test,IC_acc_train,IC_acc_test
+    # Premier dataset 
             
 #     hyperparams.granulation=100*X2.shape[2]
 #     hyperparams.Smoothing_method=Smoothing_method(knots=linspace(1,X2.shape[2],6),order=4)
@@ -1101,82 +1326,4 @@ def Hyperparameter_Search(hyperparams, grids, parameters,model_class,x,y,output_
                         best_accuracy = total_accuracy
                     
     return Model_opt,best_parameters, best_accuracy,n_best
-
-
-def Hyperparameter_Test_Project(x,y,supra_epochs=50,alpha=0.95,model_class="smooth",hyperparameters=HyperParameters(),output_size=1):
-    monte_carlo_test_acc=torch.zeros(hyperparameters.n_epochs+1,1)
-    monte_carlo_train_acc=torch.zeros(hyperparameters.n_epochs+1,1)
-    
-    for epoch in tqdm(range(supra_epochs)):
-        
-        from scipy.stats import norm
-
-        chiffre = alpha
-        quartile = norm.ppf((1 + chiffre) / 2)
-
-        
-        ##Compilation de la classe 
-
-        Model=Project_classifier(hyperparams=hyperparameters,output_size=output_size).cuda().apply(weights_init_normal)
-        train_fn = Compile_train(module=Model, hyperparams=hyperparameters,X=x,Y=y)
-
-        
-        monte_carlo_train,monte_carlo_test=train_fn(n_epochs=hyperparameters.n_epochs)
-        monte_carlo_test_acc=torch.cat([monte_carlo_test_acc,monte_carlo_test.unsqueeze(1)],dim=1)
-        monte_carlo_train_acc=torch.cat([monte_carlo_train_acc,monte_carlo_train.unsqueeze(1)],dim=1)
-
-        gc.collect()
-        torch.cuda.empty_cache()
-
-                
-
-    mean_acc_train=torch.mean(monte_carlo_train_acc[1:,1:],dim=1).float()
-    var_acc_train=torch.var(monte_carlo_test_acc[1:,1:],dim=1).float()
-    
-    
-    mean_acc_test=torch.mean(monte_carlo_test_acc[1:,1:],dim=1).float()
-    var_acc_test=torch.var(monte_carlo_test_acc[1:,1:],dim=1).float()
-    IC_acc_test=torch.cat([(mean_acc_test-quartile*sqrt(var_acc_test/supra_epochs)).unsqueeze(1),(mean_acc_test+quartile*sqrt(var_acc_test/supra_epochs)).unsqueeze(1)],dim=1)
-    IC_acc_train=torch.cat([(mean_acc_train-quartile*sqrt(var_acc_train/supra_epochs)).unsqueeze(1),(mean_acc_train+quartile*sqrt(var_acc_train/supra_epochs)).unsqueeze(1)],dim=1)
-
-    return monte_carlo_test_acc[1:,1:],monte_carlo_train_acc[1:,1:],mean_acc_train,var_acc_train,IC_acc_train, mean_acc_test,var_acc_test,IC_acc_test
-
-def Hyperparameter_Test_mlp(x,y,supra_epochs=50,alpha=0.95,model_class="smooth",hyperparameters=HyperParameters(),output_size=1):
-    monte_carlo_test_acc=torch.zeros(hyperparameters.n_epochs+1,1)
-    monte_carlo_train_acc=torch.zeros(hyperparameters.n_epochs+1,1)
-    
-    for epoch in tqdm(range(supra_epochs)):
-        
-        from scipy.stats import norm
-
-        chiffre = alpha
-        quartile = norm.ppf((1 + chiffre) / 2)
-
-        
-        ##Compilation de la classe 
-        input_size=x.shape[2]
-        Model=MLP(hyperparams=hyperparameters,output_size=output_size,input_size=input_size).cuda().apply(weights_init_normal)
-
-        train_fn = Compile_train(module=Model, hyperparams=hyperparameters,X=x,Y=y)
-
-        
-        monte_carlo_train,monte_carlo_test=train_fn(n_epochs=hyperparameters.n_epochs)
-        monte_carlo_test_acc=torch.cat([monte_carlo_test_acc,monte_carlo_test.unsqueeze(1)],dim=1)
-        monte_carlo_train_acc=torch.cat([monte_carlo_train_acc,monte_carlo_train.unsqueeze(1)],dim=1)
-
-        gc.collect()
-        torch.cuda.empty_cache()
-
-                
-
-    mean_acc_train=torch.mean(monte_carlo_train_acc[1:,1:],dim=1).float()
-    var_acc_train=torch.var(monte_carlo_test_acc[1:,1:],dim=1).float()
-    
-    
-    mean_acc_test=torch.mean(monte_carlo_test_acc[1:,1:],dim=1).float()
-    var_acc_test=torch.var(monte_carlo_test_acc[1:,1:],dim=1).float()
-    IC_acc_test=torch.cat([(mean_acc_test-quartile*sqrt(var_acc_test/supra_epochs)).unsqueeze(1),(mean_acc_test+quartile*sqrt(var_acc_test/supra_epochs)).unsqueeze(1)],dim=1)
-    IC_acc_train=torch.cat([(mean_acc_train-quartile*sqrt(var_acc_train/supra_epochs)).unsqueeze(1),(mean_acc_train+quartile*sqrt(var_acc_train/supra_epochs)).unsqueeze(1)],dim=1)
-
-    return monte_carlo_test_acc[1:,1:],monte_carlo_train_acc[1:,1:],mean_acc_train,var_acc_train,IC_acc_train, mean_acc_test,var_acc_test,IC_acc_test
 
