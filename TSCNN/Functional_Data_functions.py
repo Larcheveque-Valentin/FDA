@@ -1527,14 +1527,14 @@ def Compare_epochs(
             colors=None,
             Conf_int=True,):
     
-    num_datasets = len(datasets)
-    num_plots_per_row = int(sqrt(num_datasets))
-    num_plots_per_col = (num_datasets + num_plots_per_row - 1) // num_plots_per_row
+    # num_datasets = len(datasets)
+    # num_plots_per_row = int(sqrt(num_datasets))
+    # num_plots_per_col = (num_datasets + num_plots_per_row - 1) // num_plots_per_row
 
     # Création de la figure et des axes
-    fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=(12, 12))
+    # fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=(12, 12))
     # fig, axes = plt.subplots(((len(datasets))), figsize=(16, 16))
-    string1='Précision de '
+    # legend_attach='Précision de '
     monte_carlo_test_acc=torch.zeros(spec_param['TSC']['Phoneme'].n_epochs,supra_epochs,len(datasets),len(models))
     mean_acc_test=torch.zeros(spec_param['TSC']['Phoneme'].n_epochs,len(datasets),len(models))
     IC_acc_test=torch.zeros(spec_param['TSC']['Phoneme'].n_epochs,2,len(datasets),len(models))
@@ -1545,12 +1545,12 @@ def Compare_epochs(
     # Boucle pour créer chaque subplot
         X,Y=dataset['X'],dataset['Y']
         X=from_torch_to_Datagrid(X)
-        if num_datasets!=1:
-            window_left = i // num_plots_per_row
-            window_right = i % num_plots_per_row
-            ax = axes[window_left, window_right]
-        else:
-            ax=axes
+        # if num_datasets!=1:
+        #     window_left = i // num_plots_per_row
+        #     window_right = i % num_plots_per_row
+        #     ax = axes[window_left, window_right]
+        # else:
+        #     ax=axes
 
         for j,model in enumerate(models):
             print(model)
@@ -1569,36 +1569,38 @@ def Compare_epochs(
                 Y=Y,
                 alpha=alpha,
             )
-            ax.plot(np.arange(hyperparam.n_epochs+1)[1:],mean_acc_test[:,i,j], label=string1+model,color=colors[j])
-            if Conf_int:
-                ax.plot(np.arange(hyperparam.n_epochs+1)[1:],IC_acc_test[:,:,i,j],linestyle="dashed",color=colors[j])
-            ax.set_title(dataset['dataset_name'])
-            ax.set_xlabel("epochs")
-            ax.set_ylabel("Pourcentage bien classés dans l'ensemble de test")
-            ax.legend()
-    plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
-    plt.show()
-    return fig,monte_carlo_test_acc,mean_acc_test,IC_acc_test
+    #         ax.plot(np.arange(hyperparam.n_epochs+1)[1:],mean_acc_test[:,i,j], label=legend_attach+model,color=colors[j])
+    #         if Conf_int:
+    #             ax.plot(np.arange(hyperparam.n_epochs+1)[1:],IC_acc_test[:,:,i,j],linestyle="dashed",color=colors[j])
+    #         ax.set_title(dataset['dataset_name'])
+    #         ax.set_xlabel("epochs")
+    #         ax.set_ylabel("Pourcentage bien classés dans l'ensemble de test")
+    #         ax.legend()
+    # plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
+    # plt.show()
+    return monte_carlo_test_acc,mean_acc_test,IC_acc_test
 
 def printer(
             datasets=None,
             models=None,
-            titles=None,
             colors=None,
             Conf_int=True,
             mean_acc_test=None,
             IC_acc_test=None,
-            epochs=[0,500],):
+            epochs=[0,200],
+            titles=['Accuracy vs Epochs','Accuracy vs Epochs','Accuracy vs Epochs','Accuracy vs Epochs'],
+            legend_attach=" accuracy",
+            x_label="Epochs",
+            y_label='Validation Accuracy',
+            fig_size=(10,10),
+            ):
     num_datasets = len(datasets)
     num_plots_per_row = int(sqrt(num_datasets))
     num_plots_per_col = (num_datasets + num_plots_per_row - 1) // num_plots_per_row
     # Création de la figure et des axes
-    fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=(12, 12))
-    string1='Précision de '
-    for i,dataset in enumerate((datasets)):  
-            print(dataset['dataset_name'])  
-            X,Y=dataset['X'],dataset['Y']
-            X=from_torch_to_Datagrid(X)
+    fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=fig_size)
+    for i,dataset in enumerate((datasets)):    
+            name=dataset['dataset_name']  
         # Boucle pour créer chaque subplot sauf si un seul dataset
             if num_datasets!=1:
                 window_left = i // num_plots_per_row
@@ -1607,37 +1609,38 @@ def printer(
             else:
                 ax=axes
             for j,model in enumerate(models):
-                ax.plot(arange(start=epochs[0]-1,stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],i,j], label=string1+model,color=colors[j])
+                ax.plot(arange(start=epochs[0],stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],i,j], label=model+legend_attach,color=colors[j])
                 if Conf_int:
-                    ax.plot(arange(start=epochs[0]-1,stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,i,j],linestyle="dashed",color=colors[j])
-                ax.set_title(titles[i])
-                ax.set_xlabel("epochs")
-                ax.set_ylabel("Pourcentage bien classés dans l'ensemble de test")
+                    ax.plot(arange(start=epochs[0],stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,i,j],linestyle="dashed",color=colors[j])
+                ax.set_title(titles[i]+' '+ name)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel(y_label)
                 ax.legend()
     plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
     plt.show()
     return fig
 
 def unique_printer(
-            models=None,
-            title='titre',
-            colors=None,
+            models=['TSC,MLP'],
+            colors=['blue','red'],
             Conf_int=True,
             mean_acc_test=None,
             IC_acc_test=None,
-            epochs=[0,500],
-            fig_size=(16,16),
+            epochs=[0,200],
+            fig_size=(10,10),
+            title='Accuracy vs Epochs',
+            legend_attach=" accuracy",
+            x_label="Epochs",
+            y_label='Validation Accuracy',
             ):
-
     fig, axes = plt.subplots(figsize=fig_size)
-    string1='Précision de '
     for j,model in enumerate(models):
-        axes.plot(arange(start=epochs[0][0],stop=epochs[0][1])+1,mean_acc_test[epochs[0][0]:epochs[0][1],0,j], label=string1+model,color=colors[j])
+        axes.plot(arange(start=epochs[0],stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],0,j], label=model+legend_attach,color=colors[j])
         if Conf_int:
-            axes.plot(arange(start=epochs[0][0],stop=epochs[0][1])+1,IC_acc_test[epochs[0][0]:epochs[0][1],:,0,j],linestyle="dashed",color=colors[j])
+            axes.plot(arange(start=epochs[0],stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,0,j],linestyle="dashed",color=colors[j])
         axes.set_title(title)
-        axes.set_xlabel("Epochs")
-        axes.set_ylabel("Pourcentage bien classés dans l'ensemble de test")
+        axes.set_xlabel(x_label)
+        axes.set_ylabel(y_label)
         axes.legend()
     plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
     plt.show()
@@ -1661,7 +1664,7 @@ def Compare_n_datas(params=None,
     # Création de la figure et des axes
     fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=(12, 12))
     # fig, axes = plt.subplots(((len(datasets))), figsize=(16, 16))
-    string1='Précision de '
+    legend_attach='Précision de '
 
     for i,dataset in enumerate((datasets)):   
         print(dataset['dataset_name']) 
@@ -1702,12 +1705,12 @@ def Compare_n_datas(params=None,
                     )
                 
                 
-                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+' '+"hyperparamètre"+str(j+1),color=colors[j])
+                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=legend_attach+model+' '+"hyperparamètre"+str(j+1),color=colors[j])
                 # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color=colors[j])
-                ax.plot((np.arange(n_datas+1)[1:])*data_step,mean_acc_test[:,i,k], label=string1+model,color=colors[k])
+                ax.plot((np.arange(n_datas+1)[1:])*data_step,mean_acc_test[:,i,k], label=legend_attach+model,color=colors[k])
                 ax.plot((np.arange(n_datas+1)[1:])*data_step,IC_acc_test[:,:,i,k],linestyle="dashed",color=colors[k])
                 # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],IC_acc_test[:,:,i,j,k],linestyle="dashed",color="")
-                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=string1+model+' '+str(j+1)+"ème hyperparamètre")
+                # ax.plot(np.arange(hyperparams.n_epochs+1)[1:],mean_acc_test[:,i,j,k], label=legend_attach+model+' '+str(j+1)+"ème hyperparamètre")
                 ax.set_title(dataset['dataset_name'])
                 ax.set_xlabel("Nombre de données d'entrainement ")
                 ax.set_ylabel("Accuracy test max atteinte")
@@ -1727,7 +1730,16 @@ def Compare_n_datas(params=None,
 
 
 
-def Hyper_parameter_GridSearch(hyperparams,parameter, grid,model_class,x,y,supra_epochs=50):
+def Hyper_parameter_GridSearch(
+        hyperparams,
+        parameter,
+        grid,
+        model_class,
+        data_dict,
+        supra_epochs=50
+          ):
+    x=data_dict['X']
+    y=data_dict['Y']
     Final_acc = torch.tensor([0])
     norm=torch.zeros(len(grid))
     Optimum_parameter = grid[0]
