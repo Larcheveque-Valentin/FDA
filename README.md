@@ -10,6 +10,6 @@ This model generalizes 1D conv for functional data and the limit model is analyt
 Better than MLP to classify functional data.
 Quicker in epoch and better for irregularly spaced functional data as it is based on B-spline basis expansion and modeling.
 The functional .py file contains every utils function you need to automatically compare a wide variety of models for functional classification and regression. 
-The class Hyperparameters is uselefull to set up the hyper parameters as you wish and it's universal nature make it usable on different model classes.
+The class Hyperparameters is uselefull to set up the hyper parameters as you wish and its universal nature make it usable on different model classes.
 Implemented for Gru lstm mlp 
 
