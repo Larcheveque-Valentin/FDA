@@ -1761,13 +1761,16 @@ def Hyper_parameter_GridSearch(
     return hyperparams,Final_acc
 
 
-def Hyperparameter_Search(hyperparams, grids, parameters,model_class,x,y,supra_epochs=25):
+def Hyperparameter_Search(
+            hyperparams,
+            grids,
+            parameters,
+            model_class,
+            data_dict,
+            supra_epochs=25
 
+            ):
     best_parameters = hyperparams
-    best_accuracy = 0.0
-    mean_acc_base=0.0
-    var_acc=0.0
-    
     # Boucle sur les paramètres
     for param in tqdm(parameters):
         # Vérifier si le paramètre est dans la grille
@@ -1780,7 +1783,7 @@ def Hyperparameter_Search(hyperparams, grids, parameters,model_class,x,y,supra_e
                 setattr(best_parameters, param, value)
 
                 # Appeler la fonction de Grid Search avec les paramètres spécifiés
-                Opt_params,Final_acc = Hyper_parameter_GridSearch(best_parameters,grid=grid_values,parameter=param,model_class=model_class,x=x,y=y,supra_epochs=supra_epochs)
+                Opt_params,Final_acc = Hyper_parameter_GridSearch(best_parameters,grid=grid_values,parameter=param,model_class=model_class,data_dict=data_dict,supra_epochs=supra_epochs)
                 
                 # Mettre à jour le meilleur résultat si nécessaire
                 
