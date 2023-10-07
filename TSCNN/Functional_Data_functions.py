@@ -1580,7 +1580,7 @@ def Compare_epochs(
     # plt.show()
     return monte_carlo_test_acc,mean_acc_test,IC_acc_test
 
-def printer(
+def Multiple_Window_Maker(
             datasets=None,
             models=None,
             colors=None,
@@ -1593,6 +1593,9 @@ def printer(
             x_label="Epochs",
             y_label='Validation Accuracy',
             fig_size=(10,10),
+            fontsize_title=15,     
+            fontsize_ax=15,        
+            fontsize_legend=15,    
             ):
     num_datasets = len(datasets)
     num_plots_per_row = int(sqrt(num_datasets))
@@ -1612,15 +1615,15 @@ def printer(
                 ax.plot(arange(start=epochs[0],stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],i,j], label=model+legend_attach,color=colors[j])
                 if Conf_int:
                     ax.plot(arange(start=epochs[0],stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,i,j],linestyle="dashed",color=colors[j])
-                ax.set_title(titles[i]+' '+ name)
-                ax.set_xlabel(x_label)
-                ax.set_ylabel(y_label)
-                ax.legend()
+                ax.set_title(titles[i]+' '+ name,fontsize_title)
+                ax.set_xlabel(x_label,fontsize_ax)
+                ax.set_ylabel(y_label,fontsize_ax)
+                ax.legend(fontsize_legend)
     plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
     plt.show()
     return fig
 
-def unique_printer(
+def Window_Maker(
             models=['TSC,MLP'],
             colors=['blue','red'],
             Conf_int=True,
@@ -1632,16 +1635,20 @@ def unique_printer(
             legend_attach=" accuracy",
             x_label="Epochs",
             y_label='Validation Accuracy',
+            fontsize_title=15,     
+            fontsize_ax=15,             
+            fontsize_legend=15, 
+            espace_entre_titre_et_graphe=12,       
             ):
     fig, axes = plt.subplots(figsize=fig_size)
     for j,model in enumerate(models):
         axes.plot(arange(start=epochs[0],stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],0,j], label=model+legend_attach,color=colors[j])
         if Conf_int:
             axes.plot(arange(start=epochs[0],stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,0,j],linestyle="dashed",color=colors[j])
-        axes.set_title(title)
-        axes.set_xlabel(x_label)
-        axes.set_ylabel(y_label)
-        axes.legend()
+        axes.set_title(title,fontsize=fontsize_title,pad=espace_entre_titre_et_graphe)
+        axes.set_xlabel(x_label,fontsize=fontsize_ax)
+        axes.set_ylabel(y_label,fontsize=fontsize_ax)
+        axes.legend(fontsize=fontsize_legend)
     plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
     plt.show()
     return fig
