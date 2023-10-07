@@ -2,7 +2,7 @@
 Functionnal Data Analysis
 For deeper comprehension of the scikit-fda package, here is the tutorial developed by C RAmos-Carreño.
 I do not own the skfda_tutorial repo on my github page and it's presence here is only as a tutorial.
-Please for for a deeper dive, consult the skfda documentation website: https://fda.readthedocs.io/en/latest/index.html 
+Please for a deeper dive, consult the skfda documentation website: https://fda.readthedocs.io/en/latest/index.html 
 
 A simple implementation of a new convolutional architecture for FDA Neural networks.
 TSC (the model we propose).
