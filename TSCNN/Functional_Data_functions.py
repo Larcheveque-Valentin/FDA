@@ -1504,10 +1504,7 @@ def Hyperparameter_Test_n_data(X,Y,supra_epochs=50,alpha=0.95,model_class="smoot
         # max_monte_carlo_train_acc[:,epoch]=max_acc_train
         gc.collect()
         torch.cuda.empty_cache()
-    # mean_acc_train=torch.mean(max_monte_carlo_train_acc,dim=1).float()
-    # # max_acc_train=torch.max(monte_carlo_train_acc[1:,1:],dim=1).float()
-    # var_acc_train=torch.var(max_monte_carlo_train_acc,dim=1).float()
-
+    
     
     mean_acc_test=torch.mean(max_monte_carlo_test_acc,dim=1).float()
 
@@ -1525,15 +1522,6 @@ def Compare_epochs(
             supra_epochs=50,
             alpha=0.95,
             ):
-    
-    # num_datasets = len(datasets)
-    # num_plots_per_row = int(sqrt(num_datasets))
-    # num_plots_per_col = (num_datasets + num_plots_per_row - 1) // num_plots_per_row
-
-    # Création de la figure et des axes
-    # fig, axes = plt.subplots(num_plots_per_col, num_plots_per_row, figsize=(12, 12))
-    # fig, axes = plt.subplots(((len(datasets))), figsize=(16, 16))
-    # legend_attach='Précision de '
     monte_carlo_test_acc=torch.zeros(spec_param['TSC']['Phoneme'].n_epochs,supra_epochs,len(datasets),len(models))
     mean_acc_test=torch.zeros(spec_param['TSC']['Phoneme'].n_epochs,len(datasets),len(models))
     IC_acc_test=torch.zeros(spec_param['TSC']['Phoneme'].n_epochs,2,len(datasets),len(models))
