@@ -1524,8 +1524,7 @@ def Compare_epochs(
             models=None,
             supra_epochs=50,
             alpha=0.95,
-            colors=None,
-            Conf_int=True,):
+            ):
     
     # num_datasets = len(datasets)
     # num_plots_per_row = int(sqrt(num_datasets))
@@ -1545,13 +1544,6 @@ def Compare_epochs(
     # Boucle pour créer chaque subplot
         X,Y=dataset['X'],dataset['Y']
         X=from_torch_to_Datagrid(X)
-        # if num_datasets!=1:
-        #     window_left = i // num_plots_per_row
-        #     window_right = i % num_plots_per_row
-        #     ax = axes[window_left, window_right]
-        # else:
-        #     ax=axes
-
         for j,model in enumerate(models):
             print(model)
             hyperparam=spec_param[model][name]
@@ -1569,16 +1561,39 @@ def Compare_epochs(
                 Y=Y,
                 alpha=alpha,
             )
-    #         ax.plot(np.arange(hyperparam.n_epochs+1)[1:],mean_acc_test[:,i,j], label=legend_attach+model,color=colors[j])
-    #         if Conf_int:
-    #             ax.plot(np.arange(hyperparam.n_epochs+1)[1:],IC_acc_test[:,:,i,j],linestyle="dashed",color=colors[j])
-    #         ax.set_title(dataset['dataset_name'])
-    #         ax.set_xlabel("epochs")
-    #         ax.set_ylabel("Pourcentage bien classés dans l'ensemble de test")
-    #         ax.legend()
-    # plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
-    # plt.show()
     return monte_carlo_test_acc,mean_acc_test,IC_acc_test
+
+
+def Window_Maker(
+            models=['TSC,MLP'],
+            colors=['blue','red'],
+            Conf_int=True,
+            mean_acc_test=None,
+            IC_acc_test=None,
+            epochs=[0,200],
+            fig_size=(10,10),
+            title='Accuracy vs Epochs',
+            legend_attach=" accuracy",
+            x_label="Epochs",
+            y_label='Validation Accuracy',
+            fontsize_title=15,     
+            fontsize_ax=15,             
+            fontsize_legend=15, 
+            espace_entre_titre_et_graphe=12,       
+            ):
+    fig, axes = plt.subplots(figsize=fig_size)
+    for j,model in enumerate(models):
+        axes.plot(arange(start=epochs[0],stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],0,j], label=model+legend_attach,color=colors[j])
+        if Conf_int:
+            axes.plot(arange(start=epochs[0],stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,0,j],linestyle="dashed",color=colors[j])
+        axes.set_title(title,fontsize=fontsize_title,pad=espace_entre_titre_et_graphe)
+        axes.set_xlabel(x_label,fontsize=fontsize_ax)
+        axes.set_ylabel(y_label,fontsize=fontsize_ax)
+        axes.legend(fontsize=fontsize_legend)
+    plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
+    plt.show()
+    return fig
+
 
 def Multiple_Window_Maker(
             datasets=None,
@@ -1619,36 +1634,6 @@ def Multiple_Window_Maker(
                 ax.set_xlabel(x_label,fontsize_ax)
                 ax.set_ylabel(y_label,fontsize_ax)
                 ax.legend(fontsize_legend)
-    plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
-    plt.show()
-    return fig
-
-def Window_Maker(
-            models=['TSC,MLP'],
-            colors=['blue','red'],
-            Conf_int=True,
-            mean_acc_test=None,
-            IC_acc_test=None,
-            epochs=[0,200],
-            fig_size=(10,10),
-            title='Accuracy vs Epochs',
-            legend_attach=" accuracy",
-            x_label="Epochs",
-            y_label='Validation Accuracy',
-            fontsize_title=15,     
-            fontsize_ax=15,             
-            fontsize_legend=15, 
-            espace_entre_titre_et_graphe=12,       
-            ):
-    fig, axes = plt.subplots(figsize=fig_size)
-    for j,model in enumerate(models):
-        axes.plot(arange(start=epochs[0],stop=epochs[1])+1,mean_acc_test[epochs[0]:epochs[1],0,j], label=model+legend_attach,color=colors[j])
-        if Conf_int:
-            axes.plot(arange(start=epochs[0],stop=epochs[1])+1,IC_acc_test[epochs[0]:epochs[1],:,0,j],linestyle="dashed",color=colors[j])
-        axes.set_title(title,fontsize=fontsize_title,pad=espace_entre_titre_et_graphe)
-        axes.set_xlabel(x_label,fontsize=fontsize_ax)
-        axes.set_ylabel(y_label,fontsize=fontsize_ax)
-        axes.legend(fontsize=fontsize_legend)
     plt.tight_layout()  # Ajuster automatiquement les espacements entre les subplots
     plt.show()
     return fig
