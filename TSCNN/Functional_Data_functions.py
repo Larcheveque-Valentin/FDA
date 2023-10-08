@@ -87,7 +87,10 @@ def conv_block_out(kernel_size,stride,padding,dilation,n):
     return ((n+2*padding-dilation*(kernel_size-1)-1)//stride)+1
 
 
-
+def rm_tensor(tensor, indices):
+    mask = torch.ones_like(tensor[:,0,0]).bool()
+    mask[indices] = False
+    return tensor[mask,:,:]
 
         
 
@@ -1716,35 +1719,36 @@ def Hyper_parameter_GridSearch(
         grid,
         model_class,
         data_dict,
-        supra_epochs=50
+        supra_epochs=50,
+        reg=1,
+        acc_init=torch.tensor([0]),
           ):
+    Final_acc=acc_init
     x=data_dict['X']
     y=data_dict['Y']
-    Final_acc = torch.tensor([0])
-    norm=torch.zeros(len(grid))
-    Optimum_parameter = grid[0]
+    # norm=torch.zeros(len(grid))
+    Optimum_parameter = copy.deepcopy(hyperparams)
     if len(unique(y.cpu()))<y.shape[0]//2:
         output_size=len(unique(y.cpu()))
-        
-        # hyperparams.loss=nn.CrossEntropyLoss()
+        hyperparams.loss=nn.CrossEntropyLoss()
     else:
         output_size=y.shape[1]
         hyperparams.loss=nn.MSELoss()
-        
-    
-    
     # Obtenir l'attribut correspondant au paramètre spécifié
     attribute = getattr(hyperparams, parameter)
     
-    for i,value in enumerate(grid):
+    for value in (grid):
         # Modifier la valeur de l'attribut de la classe HyperParameters
-        setattr(hyperparams, parameter, value)
+        setattr(Optimum_parameter, parameter, value)
         print(parameter,"=",value)
         # Utiliser l'instance de HyperParameters pour effectuer les tests
-        monte_carlo_test_acc,monte_carlo_train_acc,mean_acc_train,var_acc_train,IC_acc_train, mean_acc_test,var_acc_test,IC_acc_test = Hyperparameter_Test(supra_epochs=supra_epochs,hyperparameters=hyperparams,model_class=model_class,X=x,Y=y)
-        if torch.norm(monte_carlo_test_acc)>torch.norm(Final_acc.float()):
+        monte_carlo_test_acc, mean_acc_test,IC_acc_test = Hyperparameter_Test(supra_epochs=supra_epochs,hyperparameters=Optimum_parameter,model_class=model_class,X=x,Y=y)
+        # print("accuracy moyenne avant",torch.mean(Final_acc))
+        # print("accuracy moyenne après",torch.mean(mean_acc_test))
+        # print(reg*torch.mean(mean_acc_test)>reg*torch.mean(Final_acc.float()))
+        if reg*torch.mean(mean_acc_test)>reg*torch.mean(Final_acc.float()):
+            setattr(hyperparams, parameter, value)
             Final_acc=mean_acc_test
-            hyperparams.parameter=value
     
     return hyperparams,Final_acc
 
@@ -1755,12 +1759,13 @@ def Hyperparameter_Search(
             parameters,
             model_class,
             data_dict,
-            supra_epochs=25
-
+            supra_epochs=25,
+            acc_init=torch.tensor([0]),
             ):
+    Final_acc=acc_init
     best_parameters = hyperparams
     # Boucle sur les paramètres
-    for param in tqdm(parameters):
+    for param in (parameters):
         # Vérifier si le paramètre est dans la grille
         if param in grids:
             grid_values = grids[param]  # Récupérer les valeurs de la grille pour le paramètre donné
@@ -1769,12 +1774,19 @@ def Hyperparameter_Search(
             for value in grid_values:
                 # Mettre à jour les hyperparamètres avec la valeur actuelle du paramètre
                 setattr(best_parameters, param, value)
-
+                print(param,"=",value)
                 # Appeler la fonction de Grid Search avec les paramètres spécifiés
-                Opt_params,Final_acc = Hyper_parameter_GridSearch(best_parameters,grid=grid_values,parameter=param,model_class=model_class,data_dict=data_dict,supra_epochs=supra_epochs)
+                Opt_params,Final_acc = Hyper_parameter_GridSearch(
+                    best_parameters,
+                    grid=grid_values,
+                    parameter=param,
+                    model_class=model_class,
+                    data_dict=data_dict,
+                    supra_epochs=supra_epochs,
+                    acc_init=Final_acc)
                 
                 # Mettre à jour le meilleur résultat si nécessaire
-                
+                best_parameters=copy.deepcopy(Opt_params)
                     
     return Opt_params,Final_acc
 
